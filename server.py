@@ -8,9 +8,11 @@ WS_PING_INTERVAL (20 с), WS_GRACE (20 с — сколько держим мес
 TRUST_PROXY (0 — адрес клиента = адрес TCP-соединения; N — за N своими прокси: берём N-й адрес справа
 в X-Forwarded-For; на Render — 2: Cloudflare + прокси Render), WS_MAX_CONNECTIONS (1000), WS_MAX_PER_IP (32), WS_ROOMS_PER_IP (12),
 WS_ROOM_IDLE (1800 с — комнату без гостей дольше закрываем).
+Посещаемость: TG_BOT_TOKEN и TG_CHAT_ID — бот присылает в чат отчёт за каждый день; REPORT_TZ_OFFSET (5 — Актобе, UTC+5).
 
 HTTP:  GET/HEAD статика (MIME, ETag/Last-Modified, gzip для текста, защита от выхода за корень),
        GET /healthz -> 200 ok,  GET /stats -> JSON-счётчики,  GET /ws -> WebSocket (RFC 6455).
+       GET /api/visit -> 204 (браузер шлёт раз в сутки с устройства),  GET /visits.csv -> посетители по дням.
        Тело у GET/HEAD не ждём: Content-Length до 64 КБ читаем и выбрасываем, Transfer-Encoding — 400.
 
 Протокол /ws — JSON-тексты {"t": тип, ...}.
@@ -53,7 +55,10 @@ import signal
 import struct
 import sys
 import time
+import urllib.error
+import urllib.request
 from collections import deque
+from datetime import date, datetime, timedelta, timezone
 from urllib.parse import quote, unquote, urlsplit
 
 
@@ -124,7 +129,7 @@ MIME = {
 }
 NO_CACHE_EXT = {'.html', '.htm', '.js', '.mjs', '.css', '.json', '.map', '.webmanifest'}  # всегда перепроверять (ETag)
 STATUS = {
-    101: 'Switching Protocols', 200: 'OK', 301: 'Moved Permanently', 304: 'Not Modified', 400: 'Bad Request',
+    101: 'Switching Protocols', 200: 'OK', 204: 'No Content', 301: 'Moved Permanently', 304: 'Not Modified', 400: 'Bad Request',
     403: 'Forbidden', 404: 'Not Found', 405: 'Method Not Allowed', 413: 'Payload Too Large', 426: 'Upgrade Required',
     429: 'Too Many Requests', 431: 'Request Header Fields Too Large', 500: 'Internal Server Error',
     503: 'Service Unavailable',
@@ -389,6 +394,154 @@ def compressible(ctype: str) -> bool:
         'application/manifest+json', 'application/xml')
 
 
+# ---------------- посещаемость и ежедневный отчёт в Telegram ----------------
+# Браузер раз в сутки с устройства шлёт GET /api/visit (public/js/main.js); сервер хранит только числа по дням.
+# Render free засыпает и теряет память, поэтому счёт живёт в закреплённом сообщении бота: при старте читаем его
+# (getChat -> pinned_message), изменения сохраняем правкой этого сообщения. Отчёт за день уходит после полуночи.
+TG_TOKEN = os.environ.get('TG_BOT_TOKEN', '').strip()
+TG_CHAT = os.environ.get('TG_CHAT_ID', '').strip()
+REPORT_TZ = timezone(timedelta(hours=_env_int('REPORT_TZ_OFFSET', 5)))   # Актобе — UTC+5
+SITE_URL = os.environ.get('RENDER_EXTERNAL_URL', '').rstrip('/')          # Render задаёт сам
+VISIT_MARK = '#bioglow_visits'
+VISIT_HISTORY = 150      # дней в закреплённом сообщении (текст в Telegram — до 4096 символов)
+VISITS_PER_IP = 60       # засчитанных заходов с одного адреса за день не больше: от накрутки, но класс за NAT пройдёт
+
+
+def local_day() -> str:
+    return datetime.now(REPORT_TZ).date().isoformat()
+
+
+def tg(method: str, **params) -> dict:
+    """Bot API (блокирующий вызов — через asyncio.to_thread). Текст ошибки — без токена."""
+    req = urllib.request.Request(f'https://api.telegram.org/bot{TG_TOKEN}/{method}',
+                                 data=json.dumps(params).encode('utf-8'), headers={'Content-Type': 'application/json'})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            return json.loads(r.read())['result']
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(f'{method}: HTTP {e.code} {e.read()[:200]!r}') from None
+    except urllib.error.URLError as e:
+        raise RuntimeError(f'{method}: {e.reason}') from None
+
+
+class Visits:
+    def __init__(self):
+        self.on = bool(TG_TOKEN and TG_CHAT)
+        self.loaded = False                 # пока не прочли закреплённое сообщение — не перезаписываем его
+        self.day = local_day()
+        self.count = 0
+        self.hist: dict[str, int] = {}      # закрытые дни: дата -> посетителей
+        self.reported = ''                  # последний день, по которому ушёл отчёт
+        self.due: list[str] = []            # закрытые дни без отчёта
+        self.per_ip: dict[str, int] = {}
+        self.msg_id: int | None = None
+        self.dirty = False
+
+    def _close(self, day: str, n: int) -> None:
+        self.hist[day] = n
+        if day != self.reported and day not in self.due:
+            self.due.append(day)
+        for old in sorted(self.hist)[:-VISIT_HISTORY]:
+            del self.hist[old]
+        self.dirty = True
+
+    def roll(self) -> None:
+        """Наступили новые сутки (по REPORT_TZ) — закрываем прошлый день."""
+        d = local_day()
+        if d != self.day:
+            self._close(self.day, self.count)
+            self.day, self.count, self.per_ip = d, 0, {}
+
+    def hit(self, ip: str) -> None:
+        self.roll()
+        k = ip_key(ip)
+        n = self.per_ip.get(k, 0)
+        if n >= VISITS_PER_IP:
+            return
+        self.per_ip[k] = n + 1
+        self.count += 1
+        self.dirty = True
+
+    def csv(self) -> str:
+        rows = sorted({**self.hist, self.day: self.count}.items())
+        return 'date,visitors\n' + ''.join(f'{d},{n}\n' for d, n in rows)
+
+    def state_text(self) -> str:
+        data = {'day': self.day, 'n': self.count, 'rep': self.reported, 'h': self.hist}
+        return (f'{VISIT_MARK} — служебное сообщение счётчика посещений сайта. Не удаляйте и не открепляйте: '
+                f'по нему сервер помнит счёт после перезапуска.\n{json.dumps(data, separators=(",", ":"))}')
+
+    async def load(self) -> None:
+        chat = await asyncio.to_thread(tg, 'getChat', chat_id=TG_CHAT)
+        pm = chat.get('pinned_message') or {}
+        text = pm.get('text', '')
+        if VISIT_MARK in text and '{' in text:
+            data = json.loads(text[text.index('{'):])
+            self.msg_id = pm['message_id']
+            self.hist = {str(k): int(v) for k, v in data.get('h', {}).items()}
+            self.reported = str(data.get('rep', ''))
+            if data.get('day') == self.day:
+                self.count += int(data.get('n', 0))       # заходы, пришедшие до загрузки, тоже в счёт
+            elif data.get('day'):
+                self._close(str(data['day']), int(data.get('n', 0)))   # сервер проспал полночь
+            log('info', 'visits_loaded', day=data.get('day'), n=data.get('n'), days=len(self.hist))
+        self.loaded = True
+
+    async def save(self) -> None:
+        if not (self.on and self.loaded and self.dirty):
+            return
+        self.dirty = False
+        text = self.state_text()
+        try:
+            if self.msg_id:
+                try:
+                    await asyncio.to_thread(tg, 'editMessageText', chat_id=TG_CHAT, message_id=self.msg_id, text=text)
+                    return
+                except RuntimeError as e:
+                    if 'not modified' in str(e):
+                        return
+                    log('warn', 'visits_edit_failed', err=str(e)[:200])    # сообщение удалили — заведём новое
+            msg = await asyncio.to_thread(tg, 'sendMessage', chat_id=TG_CHAT, text=text, disable_notification=True)
+            self.msg_id = msg['message_id']
+            await asyncio.to_thread(tg, 'pinChatMessage', chat_id=TG_CHAT, message_id=self.msg_id, disable_notification=True)
+        except Exception:
+            self.dirty = True
+            raise
+
+    async def report(self, day: str) -> None:
+        d = date.fromisoformat(day)
+        week = sum(self.hist.get((d - timedelta(days=i)).isoformat(), 0) for i in range(7))
+        lines = [f'📊 BIOGLOW Future Sim · {d:%d.%m.%Y}',
+                 f'Посетителей за день: {self.hist.get(day, 0)}',
+                 f'За 7 дней: {week} (в среднем {week / 7:.1f} в день)']
+        if SITE_URL:
+            lines.append(f'Все дни для графика: {SITE_URL}/visits.csv')
+        await asyncio.to_thread(tg, 'sendMessage', chat_id=TG_CHAT, text='\n'.join(lines),
+                                link_preview_options={'is_disabled': True})
+        self.reported = day
+        self.dirty = True
+
+    async def tick(self) -> None:
+        if not self.loaded:
+            await self.load()
+        self.roll()
+        while self.due:
+            await self.report(self.due[0])
+            self.due.pop(0)
+        await self.save()
+
+    async def run(self) -> None:
+        if not self.on:
+            log('info', 'visits_no_telegram')        # счёт только в памяти, /visits.csv работает
+            return
+        while True:
+            try:
+                await self.tick()
+            except Exception as e:
+                log('warn', 'visits_telegram', err=str(e)[:300])
+            await asyncio.sleep(30)
+
+
 async def serve_http(req: Request, writer, hub: 'Hub', ip: str) -> bool:
     """Обычный HTTP-запрос. -> держать ли соединение (keep-alive)."""
     keep = wants_keepalive(req) and not hub.closing
@@ -403,6 +556,14 @@ async def serve_http(req: Request, writer, hub: 'Hub', ip: str) -> bool:
     if req.path == '/stats':
         body = dumps(hub.public_stats()).encode('utf-8')
         await respond(writer, 200, body, 'application/json; charset=utf-8', keep, head, {'Cache-Control': 'no-store'})
+        return keep
+    if req.path == '/api/visit':
+        hub.visits.hit(ip)
+        await respond(writer, 204, b'', None, keep, head, {'Cache-Control': 'no-store'})
+        return keep
+    if req.path == '/visits.csv':
+        await respond(writer, 200, hub.visits.csv().encode('utf-8'), 'text/csv; charset=utf-8', keep, head,
+                      {'Cache-Control': 'no-store'})
         return keep
     if req.path == '/ws':
         body = 'Это адрес WebSocket для онлайн-режима симулятора.'.encode('utf-8')
@@ -866,6 +1027,7 @@ class Hub:
         self.join_fail: dict[str, Bucket] = {}     # ключ адреса -> неудачные входы (перебор кодов)
         self.tombs: dict[str, tuple] = {}          # код -> (токен прежнего хоста, до какого времени)
         self.files = FileCache()
+        self.visits = Visits()
         self.tasks: set = set()
         self.closing = False
         self.started = time.monotonic()
@@ -1334,11 +1496,15 @@ async def main() -> None:
     log('info', 'listen', host=HOST, port=PORT, root=ROOT, python=sys.version.split()[0], pid=os.getpid(),
         trust_proxy=TRUST_PROXY)
     janitor = asyncio.create_task(hub.janitor())
+    visits = asyncio.create_task(hub.visits.run())
     try:
         await stop.wait()
     finally:
         log('info', 'shutdown', connections=len(hub.conns), rooms=len(hub.rooms))
         janitor.cancel()
+        visits.cancel()
+        with contextlib.suppress(Exception):
+            await asyncio.wait_for(hub.visits.save(), 5)     # счёт за день — в Telegram до остановки
         server.close()
         await hub.shutdown(5.0)
         for t in list(hub.tasks):

@@ -29,6 +29,15 @@ const store = {
 };
 const params = new URLSearchParams(location.search);
 
+// Посещаемость: одно обращение в сутки с устройства, без cookies и личных данных (сервер считает только число)
+{
+  const day = new Date().toLocaleDateString('sv'); // ГГГГ-ММ-ДД по местному времени
+  if (location.protocol !== 'file:' && store.get('visitDay', '') !== day) {
+    store.set('visitDay', day);
+    fetch('/api/visit', { cache: 'no-store', keepalive: true }).catch(() => { /* офлайн — не считаем */ });
+  }
+}
+
 let sim = null, app = null;
 const bridges = {}, runners = {};
 const consoles = {};

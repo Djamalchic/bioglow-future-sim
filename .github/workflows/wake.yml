@@ -1,0 +1,17 @@
+# Будильник для ежедневного отчёта о посещаемости.
+# На бесплатном Render сервер засыпает без посетителей и не может сам отправить отчёт в полночь.
+# Сразу после полуночи по Актобе (UTC+5) будим его: он прочтёт счёт из Telegram и отправит отчёт за прошедший день.
+# GitHub может запускать расписание с опозданием до получаса; в репозитории без коммитов 60 дней расписание отключается.
+name: wake-for-daily-report
+
+on:
+  schedule:
+    - cron: '3 19 * * *'   # 19:03 UTC = 00:03 в Актобе
+  workflow_dispatch:
+
+jobs:
+  wake:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Разбудить сервер
+        run: curl -fsS --retry 6 --retry-delay 20 --retry-all-errors --max-time 120 https://bioglow-future-sim.onrender.com/healthz

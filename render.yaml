@@ -25,3 +25,8 @@ services:
       # Cloudflare («игрок, cloudflare»). Берём 2-й адрес справа: его клиент подделать не может
       - key: TRUST_PROXY
         value: "2"
+      # ежедневный отчёт о посещаемости в Telegram (README, «Посещаемость»); значения — в Dashboard -> Environment
+      - key: TG_BOT_TOKEN
+        sync: false
+      - key: TG_CHAT_ID
+        sync: false
