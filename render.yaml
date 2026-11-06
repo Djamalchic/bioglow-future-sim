@@ -1,0 +1,27 @@
+# Render Blueprint: один веб-сервис (статика из public/ + WebSocket /ws для онлайна).
+# Сервер — только стандартная библиотека Python, собирать нечего.
+#
+# Render читает этот файл ТОЛЬКО из корня репозитория:
+#   А) репозиторий = папка fll-future-sim (server.py рядом с этим файлом) — ничего не меняйте;
+#   Б) fll-future-sim — подпапка репозитория: перенесите этот файл в корень репозитория
+#      и раскомментируйте rootDir ниже (путь к папке с server.py от корня репозитория).
+services:
+  - type: web
+    name: bioglow-future-sim
+    runtime: python
+    plan: free
+    region: frankfurt            # нельзя поменять после создания
+    # rootDir: fll-future-sim
+    buildCommand: echo "stdlib only - nothing to build"
+    startCommand: python server.py
+    healthCheckPath: /healthz
+    autoDeployTrigger: commit    # новая форма поля autoDeploy: true — деплой на каждый коммит
+    envVars:
+      - key: LOG_LEVEL
+        value: info
+      - key: WS_PING_INTERVAL     # Render советует регулярные ping для WebSocket
+        value: "20"
+      # перед сервисом два прокси: Cloudflare дописывает в X-Forwarded-For адрес игрока, прокси Render — адрес
+      # Cloudflare («игрок, cloudflare»). Берём 2-й адрес справа: его клиент подделать не может
+      - key: TRUST_PROXY
+        value: "2"

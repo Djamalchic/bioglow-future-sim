@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>BIOGLOW Future Sim</title>
+<meta name="description" content="Неофициальный тренажёр робота для FIRST LEGO League BIOGLOW Future Edition 2026-27: 3D-поле, физика Rapier, две команды, Python legoeducation.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700&family=Onest:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<link rel="stylesheet" href="css/app.css">
+<link rel="stylesheet" href="css/builder.css">
+<link rel="stylesheet" href="css/referee.css">
+<link rel="stylesheet" href="css/online.css">
+<script>
+  // Экран «не загрузилось»: модули с CDN, WebGL, ошибки до старта приложения
+  (function () {
+    var shown = false;
+    window.__bootFail = function (title, detail) {
+      if (shown) return; shown = true;
+      var el = document.getElementById('fatal');
+      if (!el) { alert(title + '\n' + (detail || '')); return; }
+      document.getElementById('fatalTitle').textContent = title;
+      document.getElementById('fatalText').textContent = detail || '';
+      el.hidden = false;
+      var ld = document.getElementById('loading'); if (ld) ld.hidden = true;
+    };
+    window.addEventListener('error', function (e) {
+      if (window.bioglow || !e || !e.filename) return;
+      if (/\/js\/|cdn\.jsdelivr\.net/.test(e.filename)) window.__bootFail('Ошибка при загрузке симулятора', e.message || '');
+    });
+    window.addEventListener('unhandledrejection', function (e) {
+      if (window.bioglow) return;
+      var r = e.reason; window.__bootFail('Не удалось запустить симулятор', r && r.message ? r.message : String(r));
+    });
+    setTimeout(function () {
+      if (window.bioglow || shown) return;
+      var ld = document.getElementById('loading');
+      if (ld) ld.textContent = 'Всё ещё загружаем… Проверьте доступ к cdn.jsdelivr.net и cdnjs.cloudflare.com.';
+    }, 20000);
+  })();
+</script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/python/python.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/skulpt@1.2.0/dist/skulpt.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/skulpt@1.2.0/dist/skulpt-stdlib.js"></script>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module" src="js/main.js" onerror="window.__bootFail('Не удалось загрузить модули симулятора', 'Проверьте интернет и доступ к cdn.jsdelivr.net (three.js, Rapier), затем обновите страницу.')"></script>
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true"></span>
+    <div class="brand-text">
+      <strong>BIOGLOW</strong>
+      <span>Future Edition · тренажёр</span>
+    </div>
+  </div>
+
+  <div class="seg" role="group" aria-label="Режим">
+    <button id="modeTrain" class="on" type="button" aria-pressed="true">Тренировка</button>
+    <button id="modeMatch" type="button" aria-pressed="false">Матч</button>
+  </div>
+
+  <div class="clock">
+    <span id="timer" class="timer">0:00</span>
+    <button id="btnMatch" class="btn small" type="button">Сброс таймера</button>
+  </div>
+
+  <div class="scores" aria-live="polite">
+    <div class="score red" title="Красные"><span>Красные</span><b id="scoreRed">0</b></div>
+    <div class="score blue" title="Синие"><span>Синие</span><b id="scoreBlue">0</b></div>
+  </div>
+
+  <div class="ctrls">
+    <label class="field" title="Чья клавиатура (WASD), камера «База»/«За роботом» и телеметрия">
+      <span>Команда</span>
+      <select id="team" aria-label="Команда клавиатуры">
+        <option value="red">Красная</option>
+        <option value="blue">Синяя</option>
+      </select>
+    </label>
+    <label class="field" title="Скорость симуляции (в матче — 1×)">
+      <span>Скорость</span>
+      <select id="speed" aria-label="Скорость симуляции">
+        <option value="0.25">¼×</option>
+        <option value="0.5">½×</option>
+        <option value="1" selected>1×</option>
+        <option value="2">2×</option>
+        <option value="4">4×</option>
+      </select>
+    </label>
+    <button id="btnPause" class="btn ghost small" type="button" title="Пауза (P)" aria-pressed="false">Пауза</button>
+    <button id="btnReset" class="btn ghost small" type="button" title="Сбросить поле (Backspace, только в тренировке)">Сброс поля</button>
+  </div>
+</header>
+
+<main class="app">
+  <section class="stage">
+    <div id="viewport" tabindex="0" role="application" aria-roledescription="3D-поле" aria-label="Поле BIOGLOW: W A S D — робот, R/F — рука, G — Grand Tree, Space — программа, 1–4 — камеры"></div>
+
+    <div class="cam seg" role="group" aria-label="Камера">
+      <button data-cam="3d" class="on" type="button" aria-pressed="true">3D</button>
+      <button data-cam="top" type="button" aria-pressed="false">Сверху</button>
+      <button data-cam="base" type="button" aria-pressed="false">База</button>
+      <button data-cam="follow" type="button" aria-pressed="false">За роботом</button>
+    </div>
+
+    <div class="errbar" id="errbar" role="alert" hidden>
+      <span class="errbar-icon" aria-hidden="true">!</span>
+      <span id="errText"></span>
+      <button id="errClose" class="link" type="button" aria-label="Скрыть ошибку">×</button>
+    </div>
+
+    <div class="tele" id="tele">
+      <div title="Курс по гироскопу (imu_device.yaw), растёт при повороте влево"><span>курс</span><b id="tYaw">0°</b></div>
+      <div title="Энкодеры левого и правого мотора ходовой, °"><span>L / R</span><b id="tLR">0 / 0</b></div>
+      <div><span>рука</span><b id="tArm">0°</b></div>
+      <div><span>цвет</span><b id="tColor"><i id="tSwatch"></i><em id="tColorName">—</em></b></div>
+    </div>
+
+    <div class="keys" id="keys"></div>
+
+    <div class="banner" id="banner" hidden></div>
+    <div class="sr-only" id="srLive" role="status" aria-live="polite" aria-atomic="true"></div>
+
+    <div class="check" id="matchCheck" role="dialog" aria-labelledby="chkTitle" hidden>
+      <h3 id="chkTitle">Проверка перед матчем</h3>
+      <p class="hint">По правилам робот стартует целиком в зоне Technician и не выше 20.3 см.</p>
+      <ul id="chkList"></ul>
+      <div class="check-btns">
+        <button id="chkFix" class="btn small" type="button">Вернуть роботов в зону Technician</button>
+        <button id="chkForce" class="btn ghost small" type="button">Начать без проверки</button>
+        <button id="chkCancel" class="btn ghost small" type="button">Отмена</button>
+      </div>
+    </div>
+
+    <div class="loading" id="loading">Загружаем поле…</div>
+  </section>
+
+  <aside class="side">
+    <nav class="tabs" role="tablist" aria-label="Панели">
+      <button role="tab" id="tab-code" data-tab="code" aria-controls="pane-code" aria-selected="true" class="on" type="button">Код</button>
+      <button role="tab" id="tab-missions" data-tab="missions" aria-controls="pane-missions" aria-selected="false" tabindex="-1" type="button">Миссии</button>
+      <button role="tab" id="tab-builder" data-tab="builder" aria-controls="pane-builder" aria-selected="false" tabindex="-1" type="button">Конструктор</button>
+      <button role="tab" id="tab-referee" data-tab="referee" aria-controls="pane-referee" aria-selected="false" tabindex="-1" type="button">Судья</button>
+      <button role="tab" id="tab-online" data-tab="online" aria-controls="pane-online" aria-selected="false" tabindex="-1" type="button">Онлайн</button>
+      <button role="tab" id="tab-log" data-tab="log" aria-controls="pane-log" aria-selected="false" tabindex="-1" type="button">Протокол</button>
+      <button role="tab" id="tab-help" data-tab="help" aria-controls="pane-help" aria-selected="false" tabindex="-1" type="button">Справка</button>
+    </nav>
+
+    <section class="pane on" id="pane-code" role="tabpanel" aria-labelledby="tab-code">
+      <div class="toolbar">
+        <div class="seg team-seg" id="editTeam" role="group" aria-label="Программа какой команды">
+          <button type="button" data-side="red" class="on" aria-pressed="true"><i class="dot" aria-hidden="true"></i>Красные</button>
+          <button type="button" data-side="blue" aria-pressed="false"><i class="dot" aria-hidden="true"></i>Синие</button>
+        </div>
+        <select id="examples" aria-label="Программа или пример"></select>
+      </div>
+      <div class="toolbar">
+        <button id="btnRun" class="btn run small" type="button" title="Запустить программу этой команды (Ctrl+Enter)">▶ Запустить</button>
+        <button id="btnStop" class="btn stop small" type="button" disabled>■ Стоп</button>
+        <button id="btnRunBoth" class="btn ghost small" type="button" title="Запустить программы красных и синих одновременно">▶ обе команды</button>
+        <button id="btnStopAll" class="btn ghost small" type="button" title="Остановить все программы (Esc)" disabled>■ все</button>
+        <label class="chk" title="В режиме матча программа этой команды запустится по сигналу старта"><input type="checkbox" id="autorun"> по старту матча</label>
+      </div>
+      <p class="hint run-hint" id="runHint" hidden></p>
+      <div class="editor-wrap"><textarea id="code" spellcheck="false" aria-label="Программа на Python"></textarea></div>
+      <div class="console-head"><span id="consoleTitle">Консоль</span><span id="runState" class="pill">готов</span><button id="btnClear" class="link" type="button">очистить</button></div>
+      <pre class="console" id="console-red" tabindex="0" aria-label="Консоль красных" aria-live="polite"></pre>
+      <pre class="console" id="console-blue" tabindex="0" aria-label="Консоль синих" aria-live="polite" hidden></pre>
+    </section>
+
+    <section class="pane" id="pane-missions" role="tabpanel" aria-labelledby="tab-missions">
+      <table class="mt">
+        <thead><tr><th>Миссия</th><th class="r">Красные</th><th class="b">Синие</th></tr></thead>
+        <tbody id="missionRows"></tbody>
+        <tfoot><tr><th>Итого</th><th class="r" id="totRed">0</th><th class="b" id="totBlue">0</th></tr></tfoot>
+      </table>
+      <p class="hint">Сокращения: YF — Young Forest, GT — Grand Tree, HT — Hollow Tree. Знак ≈ у счёта в шапке — фишки или механизмы ещё движутся, счёт может измениться.</p>
+
+      <h3>Level Up: Invasive Attack</h3>
+      <p class="hint">Команда сама решает, какие из своих инвазивных видов и куда поставить перед матчем (до 5): по 20 очков за каждый добавленный, ещё по 10 — за доставку в зону сдерживания (containment zone). Выбор применяется при сбросе поля.</p>
+      <div class="inv" id="invPick"></div>
+
+      <h3>Робот и поле</h3>
+      <div class="settings">
+        <label class="field"><span>Готовый робот для обеих команд</span>
+          <select id="attachment"></select>
+        </label>
+        <label class="field"><span>Макс. скорость мотора, °/с</span><input id="maxDeg" type="number" min="200" max="2000" step="50" value="1000"></label>
+        <label class="field"><span>Свой коврик (PNG/JPG)</span><input id="matFile" type="file" accept="image/*"></label>
+        <label class="chk wide"><input type="checkbox" id="scheme2"> Второй игрок на этой клавиатуре: другая команда — <kbd>I</kbd><kbd>J</kbd><kbd>K</kbd><kbd>L</kbd></label>
+      </div>
+    </section>
+
+    <section class="pane" id="pane-builder" role="tabpanel" aria-labelledby="tab-builder"></section>
+    <section class="pane" id="pane-referee" role="tabpanel" aria-labelledby="tab-referee"></section>
+    <section class="pane" id="pane-online" role="tabpanel" aria-labelledby="tab-online"></section>
+
+    <section class="pane" id="pane-log" role="tabpanel" aria-labelledby="tab-log">
+      <ol class="log" id="log"></ol>
+    </section>
+
+    <section class="pane help" id="pane-help" role="tabpanel" aria-labelledby="tab-help">
+      <h3>Управление с клавиатуры</h3>
+      <p>Раскладка не важна: клавиши работают и в русской раскладке. Клавиши действуют везде, кроме полей ввода и редактора кода: щёлкните по полю, если курсор стоит в тексте.</p>
+      <ul>
+        <li>Команда из шапки («Команда»): <kbd>W</kbd><kbd>S</kbd> вперёд/назад, <kbd>A</kbd><kbd>D</kbd> поворот (или стрелки), <kbd>Shift</kbd> — медленно. Это роль Driver.</li>
+        <li><kbd>R</kbd>/<kbd>F</kbd> — рука на Single Motor (Technician, прямое управление мотором). В матче рукой вручную можно двигать только пока робот целиком в зоне Technician (правило 17); пульт Driver руку не двигает (правило 14). <kbd>G</kbd> — мотор Grand Tree (Specialist), <kbd>Shift</kbd>+<kbd>G</kbd> — в обратную сторону. <kbd>H</kbd> — отправить покоящиеся фишки из зоны Specialist в Token Recycler.</li>
+        <li>Пока работает программа команды, клавиши становятся рычагами пультов и не мешают её командам: пульт Driver — <kbd>W</kbd>/<kbd>S</kbd> левый, <kbd>↑</kbd>/<kbd>↓</kbd> правый; пульт Specialist — <kbd>R</kbd>/<kbd>F</kbd> левый, <kbd>T</kbd>/<kbd>G</kbd> правый.</li>
+        <li>Второй игрок за той же клавиатурой (флажок на вкладке «Миссии») управляет другой командой: <kbd>I</kbd><kbd>K</kbd> вперёд/назад, <kbd>J</kbd><kbd>L</kbd> поворот, <kbd>U</kbd>/<kbd>O</kbd> рука, <kbd>Y</kbd> дерево, <kbd>N</kbd> recycler, правый <kbd>Shift</kbd> — медленно, правый <kbd>Shift</kbd>+<kbd>Y</kbd> — дерево в обратную сторону. С программой: <kbd>I</kbd>/<kbd>K</kbd> — левый рычаг Driver, <kbd>O</kbd>/<kbd>L</kbd> — правый.</li>
+        <li><kbd>Space</kbd> — запустить/остановить программу команды из шапки (и после щелчка мышью по кнопке; кнопку, выбранную клавишей <kbd>Tab</kbd>, <kbd>Space</kbd> нажимает как обычно), <kbd>Esc</kbd> — остановить программы (в матче и у онлайн-хоста — только своей команды), <kbd>P</kbd> — пауза, <kbd>Backspace</kbd> — сброс поля (только в тренировке и когда выбрано поле), <kbd>1</kbd>–<kbd>4</kbd> — камеры.</li>
+        <li>Редактор кода: <kbd>Tab</kbd> — отступ. Чтобы уйти из редактора клавиатурой: <kbd>Esc</kbd>, затем <kbd>Tab</kbd> (или <kbd>Shift</kbd>+<kbd>Tab</kbd>). <kbd>Ctrl</kbd>+<kbd>Enter</kbd> — запустить.</li>
+        <li>Мышь: тащите фишки и робота — они упираются в борта и модели, фишка поднимается над тем, что под курсором. Колесо над роботом — поворот (с <kbd>Shift</kbd> — по 1°). Пустое место — вращение камеры.</li>
+      </ul>
+
+      <h3>Две команды и программы</h3>
+      <ul>
+        <li>На вкладке «Код» выберите, чью программу правите: у красных и синих свой «Мой код», своя консоль и свои кнопки ▶/■. «▶ обе команды» запускает обе программы одновременно.</li>
+        <li>Выбор примера не стирает «Мой код». Если начать править пример, он станет «Моим кодом», а прежний сохранится в списке «Прежние версии «Моего кода»» (последние 6; версии из примеров вытесняются первыми).</li>
+        <li>Программа и физика идут «в замке»: результат не зависит от скорости 1×/4× и частоты кадров. Опрос датчиков и <code>time.time()</code> стоят чуть-чуть времени симуляции, поэтому циклы без <code>sleep</code> тоже работают честно.</li>
+        <li>Программа управляет только роботом своей команды: модули и переменные у команд раздельные. Python работает во вкладке, поэтому один непрерывный счёт без пауз (например, <code>sum(range(10**8))</code>) ограничен 1 с, а <code>range()</code> и списки — 1 000 000 элементов: для «вечного» цикла пишите <code>while True:</code>.</li>
+        <li>Неверный аргумент (строка вместо числа, <code>nan</code>, константа не той группы — например, <code>MOVEMENT_DIRECTION_RIGHT</code> в <code>movement_turn_for_degrees</code>) — понятная ошибка в строке вызова. Свойства устройства (<code>.position</code>, <code>.yaw</code>, <code>.color</code>…) читаются только после <code>connect()</code>.</li>
+        <li>Ошибка подсвечивает строку вашей программы; <code>exit(1)</code> считается ошибкой, <code>exit()</code> — нормальным завершением.</li>
+      </ul>
+
+      <h3>Матч</h3>
+      <ul>
+        <li>«Матч» → поставьте роботов мышью в зоны Technician → «Старт»: проверка (робот целиком в зоне, не выше 20.3 см), отсчёт 3 с, 2:30 по времени симуляции. Скорость и пауза во время матча заблокированы.</li>
+        <li>На 0:00 программы и моторы останавливаются, ввод замораживается, физика 2 с «досчитывает» положение фишек, затем счёт фиксируется. Итог виден на поле (через 4 с уходит в угол, × — скрыть), подробно — во вкладке «Судья».</li>
+        <li>Знак ≈ у счёта: фишки или механизмы ещё движутся, счёт может измениться.</li>
+        <li>Флажок «по старту матча» на вкладке «Код» запускает программу команды по сигналу старта.</li>
+      </ul>
+
+      <h3>Python: модуль legoeducation</h3>
+      <p>Тот же API, что у LEGO Education Computer Science &amp; AI. Программу можно перенести на робота: <code>pip install legoeducation</code> (Python 3.14+), в <code>connect()</code> укажите цвет и номер вашей Connection Card.</p>
+      <pre class="ref" tabindex="0" aria-label="Пример API legoeducation">import legoeducation as le
+robot = le.DoubleMotor(); robot.connect()                    # ходовая робота
+tree  = le.DoubleMotor(); tree.connect(device_name='tree')   # мотор Grand Tree
+arm   = le.SingleMotor(); arm.connect()                      # навесное (Technician tool)
+eye   = le.ColorSensor(); eye.connect()                      # датчик цвета вниз
+pad   = le.Controller();  pad.connect()                      # пульт Driver
+spec  = le.Controller();  spec.connect(device_name='specialist')
+
+robot.movement_move_for_degrees(720, speed=50)
+robot.movement_turn_for_degrees(90, direction=le.MOVEMENT_TURN_DIRECTION_RIGHT)
+robot.movement_move_tank(40, 60); robot.movement_stop()
+robot.motor[le.MOTOR_LEFT].position ; robot.imu_device.yaw
+tree.movement_move_for_time(3000, speed=100)                 # дерево: те же команды
+arm.motor_run_for_degrees(270, speed=60)                     # рука +90° (передача 1:3)
+eye.sensor.color ; eye.sensor.reflection
+pad.sensor.leftPercent ; spec.sensor.rightPercent</pre>
+      <p class="hint">Лимиты железа Future Edition проверяются в <code>connect()</code>: один Double Motor ходовой + Double Motor дерева, один Single Motor, один Color Sensor, два пульта (Driver и Specialist). Лишнее устройство — понятная ошибка.</p>
+
+      <h3>Допущения симулятора</h3>
+      <ul>
+        <li>Числовые значения констант (<code>le.LEGO_COLOR_*</code> и др.) в официальной документации не опубликованы — сравнивайте с константами, а не с числами.</li>
+        <li>Правый мотор «по часовой» = вперёд, левый «по часовой» = назад (моторы смотрят в разные стороны). Команды <code>movement_*</code> это учитывают сами.</li>
+        <li><code>movement_turn_for_degrees</code> поворачивает по встроенному гироскопу; yaw растёт при повороте влево. Робот с ковшом длинный — разворачивайтесь, выехав из зоны Technician.</li>
+        <li>IMU: <code>pitch</code> растёт, когда нос поднимается, <code>roll</code> — когда правый бок опускается. Гироскоп (°/с) согласован с углами: <code>gyroscopeX</code> — скорость <code>roll</code>, <code>gyroscopeY</code> — <code>pitch</code>, <code>gyroscopeZ</code> — <code>yaw</code>. Знаки осей настоящего хаба не опубликованы — сверьте на своём роботе.</li>
+        <li><code>time.sleep_ms()</code> и <code>time.ticks_ms()</code> работают, но это MicroPython: в CPython на компьютере их нет (симулятор предупредит).</li>
+        <li>Колёса проскальзывают, если робот упёрся в борт или другого робота: команды завершаются по энкодеру, времени или таймауту.</li>
+        <li>Расположение моделей снято с официальной Field Map (±2 см). 3D-модели упрощённые: официальных 3D-файлов сезона нет.</li>
+      </ul>
+
+      <h3>Официальные источники</h3>
+      <ul class="src">
+        <li><a href="https://education.lego.com/en-us/first-lego-league/season-materials/" target="_blank" rel="noopener">LEGO Education — BIOGLOW season materials (Future Edition)</a></li>
+        <li><a href="https://www.first-lego-league.org/en/2026-27-season/future-edition-8-resources" target="_blank" rel="noopener">FIRST LEGO League — Future Edition 8+ resources</a></li>
+        <li><a href="https://github.com/LEGO/LEGOEducation" target="_blank" rel="noopener">LEGO/LEGOEducation — Python API</a></li>
+      </ul>
+      <p class="fine">Неофициальный тренажёр. FIRST®, LEGO®, FIRST® LEGO® League и BIOGLOW™ — товарные знаки FIRST и LEGO Group.</p>
+    </section>
+  </aside>
+</main>
+
+<div class="fatal" id="fatal" role="alertdialog" aria-labelledby="fatalTitle" hidden>
+  <div class="fatal-box">
+    <h2 id="fatalTitle">Не удалось запустить симулятор</h2>
+    <p id="fatalText"></p>
+    <p class="hint">Нужен современный браузер с WebGL и доступ к cdn.jsdelivr.net и cdnjs.cloudflare.com.</p>
+    <button class="btn" type="button" onclick="location.reload()">Обновить страницу</button>
+  </div>
+</div>
+</body>
+</html>

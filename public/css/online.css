@@ -1,0 +1,85 @@
+/* Онлайн-режим (вкладка «Онлайн», js/net.js). Цвета — токены из app.css (светлая и тёмная темы). */
+#pane-online .net { display: flex; flex-direction: column; gap: 12px; }
+#pane-online h3 { margin: 0 0 4px; }
+
+/* строка состояния */
+.net-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.net-status { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13px; }
+.net-status i, .net-tabdot {
+  width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex: none;
+  background: var(--muted); box-shadow: 0 0 0 3px color-mix(in srgb, var(--muted) 18%, transparent);
+}
+.net-status[data-state="connecting"] i, .net-tabdot[data-state="connecting"] { background: var(--key-bg); box-shadow: 0 0 0 3px color-mix(in srgb, var(--key-bg) 25%, transparent); }
+.net-status[data-state="online"] i, .net-tabdot[data-state="online"] { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent); }
+.net-status[data-state="reconnecting"] i, .net-tabdot[data-state="reconnecting"] { background: var(--warn); box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 22%, transparent); animation: net-blink 1s ease-in-out infinite; }
+.net-ping { font: 500 12px var(--f-mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+@keyframes net-blink { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .net-status i, .net-tabdot { animation: none !important; } }
+
+/* точка на кнопке вкладки: видна только в комнате */
+.net-tabdot { width: 7px; height: 7px; margin-left: 6px; vertical-align: 1px; box-shadow: none !important; }
+.net-tabdot:not([data-state]), .net-tabdot[data-state=""] { display: none; }
+
+/* лобби */
+.net-lobby { display: flex; flex-direction: column; gap: 12px; }
+.net-card { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; background: var(--panel); display: flex; flex-direction: column; gap: 8px; }
+.net-row { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; }
+.net-row .field { flex: 1 1 140px; }
+.net-name input { width: 100%; }
+.net-code-in {
+  width: 100%; box-sizing: border-box; text-align: center; text-transform: uppercase;
+  font: 700 26px/1.2 var(--f-mono); letter-spacing: .4em; padding: 8px 0 8px .4em;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--code-bg); color: var(--ink);
+}
+.net-code-in::placeholder { color: var(--muted); opacity: .6; letter-spacing: .3em; }
+.net-code-in:focus-visible, .net-card select:focus-visible, .net-card input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.net-card .hint.warn { color: var(--warn); }
+.net-roles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.net-role.red { background: var(--red); color: var(--on-red, #fff); }
+.net-role.blue { background: var(--blue); color: var(--on-blue, #fff); }
+.net-adv summary, .net-help summary { cursor: pointer; font-size: 12px; color: var(--muted); font-weight: 600; }
+.net-adv { display: flex; flex-direction: column; gap: 6px; }
+.net-adv .field { margin-top: 6px; }
+.net-adv input { width: 100%; box-sizing: border-box; font-family: var(--f-mono); }
+.net-adv code, .net-help code { font: 11px var(--f-mono); }
+
+/* комната */
+.net-roomv { display: flex; flex-direction: column; gap: 10px; }
+.net-codebox {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+  padding: 10px 12px; border-radius: var(--radius); background: var(--panel-2); border: 1px solid var(--line);
+}
+.net-codebox span { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.net-codebox b { font: 700 30px/1.1 var(--f-mono); letter-spacing: .25em; color: var(--ink); user-select: all; }
+.net-copy { display: flex; gap: 6px; flex-wrap: wrap; }
+.net-you { margin: 0; font-size: 13px; }
+.net-hostside { max-width: 220px; }
+.net-peers { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.net-peers li { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; background: var(--panel-2); min-width: 0; }
+.net-peers li b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.net-peers li em { font-style: normal; color: var(--muted); }
+.net-peers li small { color: var(--muted); font-size: 11px; }
+.net-peers li.off { opacity: .6; }
+.net-peers li.off small { color: var(--warn); }
+.net-peers li.free { background: transparent; border: 1px dashed var(--line); }
+.net-chip { flex: none; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; padding: 2px 7px; border-radius: 999px; background: var(--panel); color: var(--muted); border: 1px solid var(--line); }
+.net-peers li.red .net-chip { background: var(--red); color: #fff; border-color: transparent; }
+.net-peers li.blue .net-chip { background: var(--blue); color: #fff; border-color: transparent; }
+.net-peers li.host .net-chip { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.net-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 6px 12px; margin: 0; }
+.net-stats div { display: flex; flex-direction: column; min-width: 0; }
+.net-stats dt { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.net-stats dd { margin: 0; font: 500 12px var(--f-mono); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.net-roomv .btn.stop { align-self: flex-start; }
+
+/* сообщения и справка */
+.net-msg { margin: 0; min-height: 1.2em; font-size: 12px; color: var(--muted); }
+.net-msg.ok { color: var(--ok); }
+.net-msg.warn { color: var(--warn); }
+.net-msg.err { color: var(--err); }
+.net-help ul { margin: 6px 0 0; padding-left: 18px; font-size: 12px; color: var(--muted); display: flex; flex-direction: column; gap: 4px; }
+
+@media (max-width: 480px) {
+  .net-roles { grid-template-columns: 1fr; }
+  .net-codebox b { font-size: 26px; }
+}

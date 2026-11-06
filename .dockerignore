@@ -1,0 +1,18 @@
+# в образ нужны только server.py и public/
+.git
+.gitignore
+.dockerignore
+Dockerfile
+render.yaml
+docs/
+tools/
+*.md
+**/__pycache__
+**/*.py[cod]
+.venv/
+venv/
+.env
+.env.*
+*.log
+.idea/
+.vscode/

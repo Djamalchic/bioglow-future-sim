@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.python-cache/
+
+# окружение и журналы
+.env
+.env.*
+*.log
+
+# редакторы и ОС
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# на всякий случай (сборщика в проекте нет)
+node_modules/
+dist/

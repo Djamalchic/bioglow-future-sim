@@ -1,0 +1,237 @@
+/* Панель судьи (вкладка «Судья», js/referee.js): штрафы, GP, Courtesy rule, флаги вмешательства,
+   проверка, итог матча, история. Цвета — только токены из app.css (светлая и тёмная темы). */
+
+#pane-referee { gap: 12px; }
+#pane-referee h3 { margin: 0; }
+
+/* текст только для экранного диктора */
+.ref-sr {
+  position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+.ref-status {
+  margin: 0; padding: 8px 10px; border-radius: 8px; font-size: 13px;
+  background: var(--panel-2); color: var(--ink);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.ref-sec { display: flex; flex-direction: column; gap: 8px; padding-top: 10px; border-top: 1px solid var(--line); }
+.ref-sec:first-of-type { border-top: 0; padding-top: 0; }
+.ref-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px; }
+.ref-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.ref-empty { margin: 0; color: var(--muted); font-size: 12px; }
+.ref-warn { margin: 0; font-size: 12px; color: color-mix(in srgb, var(--warn) 78%, var(--ink)); }
+.ref-reason select { width: 100%; }
+
+/* ---------- карточки команд ---------- */
+.ref-teams { display: grid; grid-template-columns: repeat(auto-fit, minmax(178px, 1fr)); gap: 8px; }
+.ref-team {
+  display: flex; flex-direction: column; gap: 6px; min-width: 0;
+  padding: 10px; border-radius: var(--radius); background: var(--panel-2); border: 1px solid var(--line);
+}
+.ref-team.red { box-shadow: inset 0 3px 0 var(--red); }
+.ref-team.blue { box-shadow: inset 0 3px 0 var(--blue); }
+.ref-team header { display: flex; align-items: flex-start; gap: 8px; }
+.ref-name {
+  flex: 1; min-width: 0; padding: 4px 6px; border-radius: 6px; border: 1px solid transparent;
+  background: transparent; font-weight: 700; font-size: 14px; color: var(--ink);
+}
+.ref-name:hover { border-color: var(--line); }
+.ref-name:focus { background: var(--panel); border-color: var(--line); }
+.ref-team.red .ref-name::placeholder { color: var(--red); opacity: .85; }
+.ref-team.blue .ref-name::placeholder { color: var(--blue); opacity: .85; }
+.ref-total { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.05; flex: none; }
+.ref-total b { font: 700 22px var(--f-display); font-variant-numeric: tabular-nums; }
+.ref-team.red .ref-total b { color: var(--red); }
+.ref-team.blue .ref-total b { color: var(--blue); }
+.ref-total small { font-size: 11px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* три ступени эскалации */
+.ref-pips { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+.ref-pips i {
+  font: 600 11px var(--f-mono); font-style: normal; text-align: center; padding: 2px 0; border-radius: 4px;
+  color: var(--muted); background: var(--panel); border: 1px dashed var(--line);
+}
+.ref-pips i.on { color: #fff; background: var(--err); border: 1px solid var(--err); }
+.ref-pentext { margin: 0; font-size: 12px; color: var(--muted); }
+.btn.ref-pen { background: var(--err); color: var(--on-err, #fff); }
+.btn.ref-pen:hover:not(:disabled) { filter: brightness(1.08); }
+
+.ref-penlog { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; font-size: 12px; }
+.ref-penlog:empty { display: none; }
+.ref-penlog li { display: grid; grid-template-columns: auto 1fr auto; gap: 6px; padding: 3px 6px; border-radius: 5px; background: var(--panel); }
+.ref-penlog time { font: 600 11px var(--f-mono); color: var(--muted); }
+.ref-penlog span { min-width: 0; overflow-wrap: anywhere; }
+.ref-penlog b { color: var(--err); font-variant-numeric: tabular-nums; }
+
+.ref-gp select { width: 100%; }
+.ref-count { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* ---------- «отдать судье» ---------- */
+#refPick.on { background: var(--warn); border-color: var(--warn); color: #1c1200; }
+#viewport.ref-picking, #viewport.ref-picking canvas { cursor: crosshair; }
+/* под рядом камер (как .errbar), чтобы кнопки камеры оставались доступны; видна ошибка — ещё ниже */
+.ref-pickbar {
+  position: absolute; top: 52px; left: 50%; transform: translateX(-50%); z-index: 4;
+  display: flex; align-items: center; gap: 10px; max-width: calc(100% - 24px);
+  padding: 6px 8px 6px 12px; border-radius: 999px; font-size: 13px;
+  background: rgba(10, 20, 14, .86); color: #f3e2bd; border: 1px solid #b26a00;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .35);
+}
+.ref-pickdot { flex: none; width: 10px; height: 10px; border-radius: 50%; background: #f0a33a; animation: ref-pulse 1.4s ease-in-out infinite; }
+.ref-pickx {
+  flex: none; border: 1px solid rgba(255, 255, 255, .25); background: transparent; color: #f3e2bd;
+  border-radius: 999px; padding: 2px 10px; cursor: pointer; font-weight: 600; font-size: 12px;
+}
+.ref-pickx:hover { background: rgba(255, 255, 255, .1); }
+.errbar:not([hidden]) ~ .ref-pickbar { top: 104px; }
+@keyframes ref-pulse { 50% { opacity: .35; } }
+
+/* ---------- инструмент Operator (кнопка и панель лотка на поле) ---------- */
+#viewport.ref-tooling, #viewport.ref-tooling canvas { cursor: grab; }
+.ref-otool {
+  position: absolute; top: 12px; right: 12px; z-index: 4;
+  display: flex; flex-direction: column; align-items: flex-end; gap: 6px;
+  max-width: calc(100% - 24px); pointer-events: none;
+}
+.ref-otool > * { pointer-events: auto; }
+.ref-otool-tg {
+  font: 600 13px var(--f-body); padding: 5px 12px; border-radius: 999px; cursor: pointer;
+  background: rgba(10, 20, 14, .72); color: #d6e3da; border: 1px solid rgba(255, 255, 255, .14);
+  box-shadow: inset 3px 0 0 var(--red);
+}
+.ref-otool.blue .ref-otool-tg { box-shadow: inset 3px 0 0 var(--blue); }
+.ref-otool-tg:hover { background: rgba(10, 20, 14, .86); }
+.ref-otool-tg.on { background: #f6c21a; color: #1c1200; border-color: #f6c21a; }
+.ref-otool-tg:focus-visible, .ref-otool-box button:focus-visible, .ref-otool-box input:focus-visible { outline: 2px solid #f6c21a; outline-offset: 2px; }
+.ref-otool-box {
+  width: min(272px, calc(100vw - 24px)); max-width: 100%; box-sizing: border-box;
+  display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: var(--radius);
+  background: rgba(10, 20, 14, .9); color: #e7f0ea; font-size: 12.5px;
+  border: 1px solid rgba(255, 255, 255, .14); box-shadow: 0 6px 18px rgba(0, 0, 0, .35);
+}
+.ref-otool-box[hidden] { display: none; }
+.ref-otool-h { margin: 0; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.ref-otool-h b { font: 700 13px var(--f-display); }
+.ref-otool-team { font-size: 11px; color: #ef8a80; }
+.ref-otool.blue .ref-otool-team { color: #8fb4f5; }
+.ref-otool-f { display: flex; flex-direction: column; gap: 2px; }
+.ref-otool-f span { display: flex; justify-content: space-between; gap: 8px; color: #a9c0b0; font-size: 11.5px; }
+.ref-otool-f output { color: #e7f0ea; font-variant-numeric: tabular-nums; }
+.ref-otool-f input { width: 100%; margin: 0; accent-color: #f6c21a; }
+.ref-otool-row { display: flex; gap: 6px; }
+.ref-otool-fire, .ref-otool-x {
+  flex: 1; padding: 5px 10px; border-radius: 8px; cursor: pointer; font: 600 12.5px var(--f-body);
+  border: 1px solid rgba(255, 255, 255, .2); background: transparent; color: #e7f0ea;
+}
+.ref-otool-fire { background: #f6c21a; border-color: #f6c21a; color: #1c1200; }
+.ref-otool-fire:disabled, .ref-otool-f input:disabled { opacity: .45; cursor: not-allowed; }
+.ref-otool-x:hover, .ref-otool-fire:hover:not(:disabled) { filter: brightness(1.08); }
+.ref-otool-note { margin: 0; color: #c9d7cc; font-size: 11.5px; line-height: 1.35; }
+
+.ref-toast {
+  position: absolute; left: 50%; bottom: 64px; transform: translateX(-50%); z-index: 4;
+  max-width: min(520px, calc(100% - 24px)); padding: 8px 14px; border-radius: var(--radius);
+  background: rgba(10, 20, 14, .9); color: #e7f0ea; font-size: 13px; text-align: center;
+  border: 1px solid rgba(255, 255, 255, .14); box-shadow: 0 6px 18px rgba(0, 0, 0, .35); pointer-events: none;
+}
+
+/* ---------- флаги вмешательства ---------- */
+.ref-flags { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; max-height: 300px; overflow: auto; }
+.ref-flags li {
+  display: grid; grid-template-columns: 3.6em minmax(0, 1fr); gap: 4px 8px; align-items: start;
+  padding: 6px 8px; border-radius: 6px; background: var(--panel-2); font-size: 12.5px;
+  box-shadow: inset 3px 0 0 var(--warn);
+}
+.ref-flags li.red { box-shadow: inset 3px 0 0 var(--red); }
+.ref-flags li.blue { box-shadow: inset 3px 0 0 var(--blue); }
+.ref-flags li.done { opacity: .62; }
+.ref-flags li.ref-empty { display: block; background: none; box-shadow: none; padding: 0; }
+.ref-flags time { font: 600 11px var(--f-mono); color: var(--muted); padding-top: 1px; }
+.ref-flags small { color: var(--muted); }
+.ref-flags em { font-style: normal; color: var(--warn); font-weight: 600; }
+.ref-flags .acts { grid-column: 2; display: flex; flex-wrap: wrap; gap: 4px; }
+.ref-flags .acts .btn { padding: 3px 8px; font-size: 12px; }
+.ref-who.red { color: var(--red); }
+.ref-who.blue { color: var(--blue); }
+.ref-st { display: inline-block; margin-left: 4px; padding: 0 6px; border-radius: 999px; font-size: 11px; font-weight: 600; background: var(--panel); color: var(--muted); }
+
+#tab-referee.ref-has-flags { position: relative; }
+#tab-referee.ref-has-flags::after {
+  content: attr(data-flags); display: inline-block; min-width: 16px; height: 16px; margin-left: 5px; padding: 0 4px;
+  border-radius: 999px; background: var(--warn); color: #1c1200; font: 700 10px/16px var(--f-body); text-align: center; vertical-align: 1px;
+}
+
+/* ---------- проверка ---------- */
+.ref-insp { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.ref-insp > li { padding: 7px 10px; border-radius: 8px; background: var(--panel-2); font-size: 12.5px; display: flex; flex-direction: column; gap: 3px; }
+.ref-insp > li.red { box-shadow: inset 3px 0 0 var(--red); }
+.ref-insp > li.blue { box-shadow: inset 3px 0 0 var(--blue); }
+.ref-insp ul { margin: 0; padding-left: 18px; color: var(--err); }
+.ref-insp .link { align-self: flex-start; }
+.ref-insp-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ref-insp-d { margin: 0; color: var(--muted); font-variant-numeric: tabular-nums; }
+.ref-badge {
+  display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 700;
+  background: var(--panel); color: var(--muted); border: 1px solid var(--line); white-space: nowrap;
+}
+.ref-badge:empty { display: none; }
+.ref-badge.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); background: color-mix(in srgb, var(--ok) 12%, transparent); }
+.ref-badge.bad { color: var(--err); border-color: color-mix(in srgb, var(--err) 45%, transparent); background: color-mix(in srgb, var(--err) 10%, transparent); }
+
+/* ---------- таблицы итога и истории ---------- */
+.ref-scroll { overflow-x: auto; max-width: 100%; }
+.ref-tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.ref-tbl th, .ref-tbl td { padding: 5px 6px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; }
+.ref-tbl thead th { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 600; }
+.ref-tbl tbody th { font-weight: 500; }
+.ref-tbl th small, .ref-tbl td small { color: var(--muted); font-size: 11px; font-weight: 400; }
+.ref-tbl .n { text-align: right; white-space: nowrap; }
+.ref-tbl .c { text-align: center; }
+.ref-tbl small.ref-date { display: block; white-space: nowrap; }
+.ref-tbl thead th.red { color: var(--red); }
+.ref-tbl thead th.blue { color: var(--blue); }
+.ref-tbl tr.tot th, .ref-tbl tr.tot td { font: 700 15px var(--f-display); border-bottom-width: 2px; }
+.ref-tbl tr.tot td.red { color: var(--red); }
+.ref-tbl tr.tot td.blue { color: var(--blue); }
+.ref-tbl tfoot th, .ref-tbl tfoot td { border-bottom: 0; font-weight: 600; }
+.ref-tbl tr.off td, .ref-tbl tr.off th { color: var(--muted); }
+.ref-tbl tr.off td b { text-decoration: line-through; font-weight: 500; }
+.ref-tbl input[type="checkbox"] { margin: 0; accent-color: var(--accent); width: 16px; height: 16px; }
+.ref-mid { font: 600 11px var(--f-mono); color: var(--accent); margin-right: 6px; }
+.ref-rank td:first-child { color: var(--muted); width: 2em; }
+.ref-few {
+  display: inline-block; margin-left: 4px; padding: 0 5px; border-radius: 999px;
+  background: color-mix(in srgb, var(--warn) 16%, transparent); color: var(--warn) !important; font-weight: 600;
+}
+.ref-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; vertical-align: 1px; }
+.ref-dot.red { background: var(--red); }
+.ref-dot.blue { background: var(--blue); }
+
+.ref-team-hist { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.ref-team-hist + .ref-team-hist { margin-top: 6px; }
+.ref-team-hist summary { cursor: pointer; padding: 7px 10px; font-weight: 600; font-size: 13px; }
+.ref-team-hist[open] summary { border-bottom: 1px solid var(--line); }
+.ref-team-hist .ref-scroll { padding: 0 6px 4px; }
+#refHist { display: flex; flex-direction: column; gap: 8px; }
+
+/* ---------- справка по рукам ---------- */
+.ref-rules { border-top: 1px solid var(--line); padding-top: 10px; font-size: 12.5px; }
+.ref-rules summary { cursor: pointer; font: 700 13px var(--f-display); letter-spacing: .03em; }
+.ref-rules ul { margin: 8px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 5px; color: var(--ink); }
+
+/* ---------- узкие экраны ---------- */
+@media (max-width: 560px) {
+  .ref-teams { grid-template-columns: minmax(0, 1fr); }
+  .ref-pickbar { font-size: 12px; }
+  /* панель лотка начинается ниже ряда камер (он здесь шире и доходит до неё) */
+  .ref-otool { top: 8px; right: 8px; max-width: calc(100% - 16px); gap: 10px; }
+  .ref-otool-tg { padding: 4px 10px; font-size: 12px; }
+  .ref-otool-box { width: min(260px, calc(100vw - 16px)); }
+  .ref-flags li { grid-template-columns: minmax(0, 1fr); }
+  .ref-flags .acts { grid-column: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ref-pickdot { animation: none; }
+}

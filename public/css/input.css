@@ -1,0 +1,187 @@
+/* Ввод: панель геймпадов (вкладка «Миссии»), значок 🎮 и подсказка на поле, экранные джойстики.
+   Подключается из input.js (<link data-input-css>). Сцена всегда тёмная — оверлеи в её палитре. */
+
+/* ---------- панель «Геймпады и сенсорный экран» ---------- */
+.pads { display: flex; flex-direction: column; gap: 8px; }
+.pads h3 { margin-bottom: 0; }
+.pad-list { display: flex; flex-direction: column; gap: 8px; }
+.pad-list:empty { display: none; }
+.pad-card {
+  display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-radius: var(--radius);
+  background: var(--panel-2); border: 1px solid var(--line); box-shadow: inset 3px 0 0 var(--muted);
+}
+.pad-card.red { box-shadow: inset 3px 0 0 var(--red); }
+.pad-card.blue { box-shadow: inset 3px 0 0 var(--blue); }
+.pad-card.off { opacity: .75; }
+.pad-card.active .pad-num { background: var(--accent); color: var(--accent-ink); }
+.pad-head { display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; }
+.pad-num {
+  flex: none; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center;
+  font: 700 12px var(--f-mono); background: var(--panel); color: var(--ink); border: 1px solid var(--line);
+  transition: background-color .12s, color .12s;
+}
+.pad-name { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 140px; }
+.pad-tag { font-size: 11px; color: var(--muted); }
+.pad-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; }
+.pad-row .field select { width: 100%; }
+.pad-card .hint { line-height: 1.4; }
+
+/* живой вид геймпада: курки, стики, кнопки */
+.pad-viz { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.pv-trig {
+  position: relative; width: 10px; height: 30px; border-radius: 3px; overflow: hidden;
+  background: var(--panel); border: 1px solid var(--line);
+}
+.pv-trig i {
+  position: absolute; inset: 0; background: var(--accent);
+  transform-origin: 50% 100%; transform: scaleY(var(--v, 0));
+}
+.pv-stick {
+  position: relative; width: 32px; height: 32px; border-radius: 50%;
+  background: var(--panel); border: 1px solid var(--line);
+}
+.pv-stick i {
+  position: absolute; left: 50%; top: 50%; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%;
+  background: var(--accent); transform: translate(calc(var(--x, 0) * 11px), calc(var(--y, 0) * 11px));
+}
+.pv-btns { display: flex; flex-wrap: wrap; gap: 3px; }
+.pv-btns b {
+  min-width: 22px; padding: 1px 4px; border-radius: 4px; text-align: center;
+  font: 600 10px var(--f-mono); color: var(--muted); background: var(--panel); border: 1px solid var(--line);
+}
+.pv-btns b.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.pad-viz .link { margin-left: auto; }
+
+.pad-touch { display: flex; flex-direction: column; gap: 4px; }
+.pad-touch .field { max-width: 320px; }
+.pad-help { font-size: 13px; }
+.pad-help summary { cursor: pointer; color: var(--accent); font-weight: 600; font-size: 12px; }
+.pad-help ul, .pad-help-ref ul { margin: 6px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
+.pad-help code { font: 12px var(--f-mono); background: var(--panel-2); padding: 0 4px; border-radius: 4px; }
+.pad-help-ref { display: flex; flex-direction: column; gap: 6px; }
+
+/* ---------- значок 🎮 и подсказка на поле ---------- */
+.pad-badge {
+  position: absolute; top: 12px; right: 12px; z-index: 4;
+  display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; min-height: 30px;
+  border-radius: 999px; border: 1px solid rgba(255,255,255,.14); background: rgba(10,20,14,.72);
+  color: #e7f0ea; font-size: 13px; cursor: pointer;
+}
+.pad-badge:hover { background: rgba(10,20,14,.88); }
+.pad-badge i {
+  font: 700 10px var(--f-mono); font-style: normal; width: 18px; height: 18px; border-radius: 50%;
+  display: grid; place-items: center; background: #3a5243; color: #e7f0ea;
+}
+.pad-badge i.red { background: var(--red); color: #fff; }
+.pad-badge i.blue { background: var(--blue); color: #fff; }
+.pad-toast {
+  position: absolute; top: 50px; right: 12px; z-index: 4; max-width: min(360px, calc(100% - 24px));
+  padding: 7px 12px; border-radius: var(--radius); background: rgba(10,20,14,.86); color: #e7f0ea;
+  font-size: 13px; border: 1px solid rgba(255,255,255,.14); pointer-events: none;
+}
+
+/* ---------- экранные джойстики ----------
+   Поверх поля, поэтому компактные и полупрозрачные (ярче под пальцем); кнопка 🕹 слева вверху их сворачивает. */
+.tc {
+  --tc-size: clamp(80px, 20vmin, 124px);
+  --tc-gap: 12px;
+  --tc-idle: .6;          /* непрозрачность джойстика без касания */
+  position: absolute; inset: 0; z-index: 3; pointer-events: none; /* жесты камеры проходят сквозь */
+  -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+}
+.tc-stick, .tc-btn, .tc-hide { pointer-events: auto; touch-action: none; -webkit-tap-highlight-color: transparent; }
+.tc-stick {
+  position: absolute; bottom: max(var(--tc-gap), env(safe-area-inset-bottom, 0px));
+  width: var(--tc-size); height: var(--tc-size); border-radius: 50%;
+  background: radial-gradient(circle, rgba(231,240,234,.06) 0 38%, rgba(10,20,14,.28) 39%);
+  border: 2px solid rgba(231,240,234,.28);
+  opacity: var(--tc-idle);
+}
+.tc-left { left: max(var(--tc-gap), env(safe-area-inset-left, 0px)); border-color: color-mix(in srgb, var(--red) 70%, transparent); }
+.tc-right { right: max(var(--tc-gap), env(safe-area-inset-right, 0px)); border-color: color-mix(in srgb, var(--red) 70%, transparent); }
+.tc.blue .tc-left, .tc.blue .tc-right { border-color: color-mix(in srgb, var(--blue) 75%, transparent); }
+.tc-stick.on { border-color: #e7f0ea; opacity: 1; background: radial-gradient(circle, rgba(231,240,234,.10) 0 38%, rgba(10,20,14,.5) 39%); }
+/* рука в матче вне зоны Technician — только программой: джойстик приглушён */
+.tc-stick.off { opacity: .35; border-style: dashed; }
+.tc-stick.off .tc-knob { background: rgba(231,240,234,.45); }
+.tc-cap {
+  position: absolute; left: 50%; top: -20px; transform: translateX(-50%); white-space: nowrap;
+  font: 600 11px var(--f-body); color: #e7f0ea; padding: 1px 7px; border-radius: 999px; background: rgba(10,20,14,.72);
+}
+.tc-knob {
+  position: absolute; inset: 0; margin: auto; width: 42%; height: 42%; border-radius: 50%;
+  background: rgba(231,240,234,.8); box-shadow: 0 2px 6px rgba(0,0,0,.35);
+  transform: translate(var(--kx, 0px), var(--ky, 0px)); /* центр — через margin: без процентов в transform */
+  transition: transform .12s ease-out;
+}
+.tc-stick.on .tc-knob { transition: none; background: #fff; }
+/* с программой ручки ходят только вверх-вниз (рычаги) — направляющая */
+.tc.prog .tc-stick::before {
+  content: ""; position: absolute; left: 50%; top: 14%; bottom: 14%; width: 4px; margin-left: -2px;
+  border-radius: 2px; background: rgba(231,240,234,.28);
+}
+
+/* кнопки: на вытянутом по горизонтали экране — одна низкая строка у нижнего края, на узком — 3 × 2 */
+.tc-btns {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  bottom: max(var(--tc-gap), env(safe-area-inset-bottom, 0px));
+  display: grid; grid-template-columns: repeat(6, 40px); gap: 4px;
+}
+.tc-btn {
+  width: 40px; height: 40px; padding: 0; border-radius: 12px; cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0;
+  border: 1px solid rgba(231,240,234,.22); background: rgba(10,20,14,.5); color: #e7f0ea;
+  opacity: .8;
+}
+.tc-btn:active, .tc-btn.on, .tc-btn:focus-visible { opacity: 1; }
+.tc-btn b { font: 700 15px/1 var(--f-body); }
+.tc-btn small { font-size: 8.5px; line-height: 1.1; color: #c9d7cc; letter-spacing: .02em; }
+.tc-btn.on { background: #e7f0ea; color: #13201a; border-color: #e7f0ea; }
+.tc-btn.on small { color: #3a5243; }
+.tc-btn[data-act="run"] b { color: #7fd88f; }
+.tc-btn[data-act="run"].on { background: #c4332a; border-color: #c4332a; color: #fff; }
+.tc-btn[data-act="run"].on b, .tc-btn[data-act="run"].on small { color: #fff; }
+/* с программой кнопки ручного управления не действуют — приглушаем */
+.tc.prog [data-act="slow"], .tc.prog [data-hold] { opacity: .4; }
+
+/* свернуть / показать джойстики — слева вверху под камерами (правый угол занят 🎮 и инструментом Operator),
+   место не меняется */
+.tc-hide {
+  position: absolute; top: 52px; left: max(12px, env(safe-area-inset-left, 0px));
+  display: inline-flex; align-items: center; gap: 4px; min-height: 32px; padding: 3px 10px 3px 8px; cursor: pointer;
+  border-radius: 999px; border: 1px solid rgba(255,255,255,.14); background: rgba(10,20,14,.72); color: #e7f0ea;
+  font: 600 12px var(--f-body);
+}
+.tc-hide span { font-size: 15px; line-height: 1; }
+.tc-hide small { font: inherit; }
+.tc-hide.on { background: #e7f0ea; color: #13201a; border-color: #e7f0ea; }
+.tc.min .tc-stick, .tc.min .tc-btns { display: none; }
+
+/* на сцене с джойстиками телеметрия уходит наверх (под кнопку 🕹), подсказка клавиш прячется */
+.stage.touch-on .keys { display: none; }
+.stage.touch-on .tele { top: 92px; bottom: auto; left: 12px; }
+/* правый верхний угол делим с инструментом Operator (модуль судьи): значок 🎮 и подсказка — под ним */
+.stage:has(> .ref-otool:not([hidden])) .pad-badge { top: 50px; }
+.stage:has(> .ref-otool:not([hidden])) .pad-toast { top: 88px; }
+
+@media (orientation: portrait) {
+  /* узкий экран: в строку кнопки не помещаются между джойстиками — сетка 3 × 2 */
+  .tc-btns { grid-template-columns: repeat(3, 40px); }
+}
+@media (max-width: 560px) {
+  .tc { --tc-gap: 8px; }
+  .tc-hide { top: 46px; left: max(8px, env(safe-area-inset-left, 0px)); }
+  .stage.touch-on .tele { top: 84px; left: 8px; padding: 6px 8px; gap: 2px 10px; }
+  .pad-badge { top: 8px; right: 8px; }
+  .pad-toast { top: 44px; right: 8px; }
+  .stage:has(> .ref-otool:not([hidden])) .pad-badge { top: 44px; }
+  .stage:has(> .ref-otool:not([hidden])) .pad-toast { top: 80px; }
+}
+@media (max-height: 420px) {
+  /* телефон в альбомной ориентации: сцена низкая — джойстики меньше и ближе к краю */
+  .tc { --tc-size: clamp(76px, 24vmin, 104px); --tc-gap: 8px; }
+  .stage.touch-on .tele { display: none; } /* низкая сцена: место нужно полю */
+}
+@media (prefers-reduced-motion: reduce) {
+  .tc-knob, .pad-num { transition: none; }
+}
